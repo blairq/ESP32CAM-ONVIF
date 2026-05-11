@@ -51,6 +51,7 @@
 // #define BOARD_SEEED_XIAO_S3        // Seeed XIAO ESP32S3 Sense
 // #define BOARD_ESP32S3_EYE          // ESP32-S3-EYE from Espressif
 // #define BOARD_ESP32P4_FUNCTION_EV  // ESP32-P4-Function-EV-Board (H.264 HW!)
+// #define BOARD_ESP32P4_ETH          // Waveshare ESP32-P4-ETH (H.264 HW + Audio!)
 // #define BOARD_CUSTOM               // Custom board - define pins in board_config.h
 
 // ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓

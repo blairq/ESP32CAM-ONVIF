@@ -91,6 +91,7 @@ Transform your affordable ESP32 camera module into a **professional-grade ONVIF 
 | Board | Manufacturer | Camera | Performance |
 |-------|-------------|--------|-------------|
 | **ESP32-P4-Function-EV** | Espressif | MIPI-CSI | 30 FPS @ 1080p, 140KB RAM |
+| **Waveshare ESP32-P4-ETH** | Waveshare | MIPI-CSI | 30 FPS @ 1080p, 140KB RAM |
 
 ---
 

@@ -1137,21 +1137,9 @@ void web_config_start() {
         vTaskDelete(NULL);
     };
 
-    // === OTA Backend State & Preparation ===
-    static volatile int ota_progress = -1;
-    static String ota_status_msg = "";
-    static String ota_status_detail = "";
-
-    auto prepare_for_ota = []() {
-        Serial.println("[OTA] Preparing for OTA: Stopping services to free memory...");
-        sd_recorder_stop_manual();
-        // Stop camera to free massive framebuffers back to PSRAM/Heap
-        esp_camera_deinit();
-        delay(500);
-    };
 
     // === OTA Firmware Update (with authentication) ===
-    webConfigServer.on("/api/update", HTTP_POST, []() {
+    webConfigServer.on("/api/update", HTTP_POST, [&prepare_for_ota]() {
         if (!isAuthenticated(webConfigServer)) return;
         HTTPUpload& upload = webConfigServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
@@ -1171,7 +1159,7 @@ void web_config_start() {
                 Update.printError(Serial);
             }
         }
-    }, [prepare_for_ota]() {
+    }, [&prepare_for_ota]() {
         // Auth check on upload start
         if (!webConfigServer.authenticate(WEB_USER, WEB_PASS)) {
             return;
@@ -1376,7 +1364,6 @@ void web_config_start() {
 
     webConfigServer.begin();
         Serial.println("[INFO] Web config server started.");
-    }
 }
 
 void web_config_loop() {

@@ -375,6 +375,47 @@
     #define SERVO_TILT_PIN    25          // Safe GPIO
 
 // ==============================================================================
+//   Waveshare ESP32-P4-ETH (H.264 HW + Audio)
+// ==============================================================================
+#elif defined(BOARD_ESP32P4_ETH)
+    // Waveshare ESP32-P4-ETH with MIPI-CSI camera and I2S Audio
+    #define PWDN_GPIO_NUM     -1
+    #define RESET_GPIO_NUM    -1
+    #define XCLK_GPIO_NUM     -1      // MIPI-CSI doesn't use XCLK
+    #define SIOD_GPIO_NUM      8      // I2C SDA for camera control
+    #define SIOC_GPIO_NUM      7      // I2C SCL for camera control
+    // DVP pins not used - MIPI-CSI is used instead
+    #define Y9_GPIO_NUM       -1
+    #define Y8_GPIO_NUM       -1
+    #define Y7_GPIO_NUM       -1
+    #define Y6_GPIO_NUM       -1
+    #define Y5_GPIO_NUM       -1
+    #define Y4_GPIO_NUM       -1
+    #define Y3_GPIO_NUM       -1
+    #define Y2_GPIO_NUM       -1
+    #define VSYNC_GPIO_NUM    -1
+    #define HREF_GPIO_NUM     -1
+    #define PCLK_GPIO_NUM     -1
+    #define BOARD_NAME        "Waveshare ESP32-P4-ETH"
+    #define HAS_PSRAM         true
+    #define CHIP_TYPE         "ESP32-P4"
+    #define H264_CAPABLE      true
+    #define H264_HW_ENCODER   true    // Hardware H.264 encoder available!
+    #define USE_MIPI_CSI      true    // Uses MIPI-CSI instead of DVP
+    // ESP32-P4-ETH - Generic GPIO mapping for indicators/servos
+    #define FLASH_LED_PIN     -1          // No flash LED
+    #define STATUS_LED_PIN    27          // Use GPIO 27 for status (adjust if needed)
+    #define SERVO_PAN_PIN     26          // Safe GPIO
+    #define SERVO_TILT_PIN    25          // Safe GPIO
+    // I2S Audio Pins (SMD Mic and Speaker)
+    #define I2S_MCK_IO        13
+    #define I2S_BCK_IO        12
+    #define I2S_WS_IO         10
+    #define I2S_DO_IO         9
+    #define I2S_DI_IO         11
+    #define GPIO_OUTPUT_PA    53
+
+// ==============================================================================
 //   Custom Board - Define Your Own Pins
 // ==============================================================================
 #elif defined(BOARD_CUSTOM)
