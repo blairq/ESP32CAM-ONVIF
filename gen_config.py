@@ -1,4 +1,23 @@
 import sys
+import re
+
+BOARD_MAP = {
+    'CONFIG_BOARD_AI_THINKER_ESP32CAM': 'esp32cam',
+    'CONFIG_BOARD_M5STACK_CAMERA': 'm5stack_camera',
+    'CONFIG_BOARD_M5STACK_PSRAM': 'm5stack_camera', # Fallback
+    'CONFIG_BOARD_M5STACK_WIDE': 'm5stack_camera',
+    'CONFIG_BOARD_M5STACK_UNITCAM': 'm5stack_camera',
+    'CONFIG_BOARD_TTGO_T_CAMERA': 'ttgo_t_camera',
+    'CONFIG_BOARD_TTGO_T_JOURNAL': 'ttgo_t_camera',
+    'CONFIG_BOARD_WROVER_KIT': 'esp_wrover_kit',
+    'CONFIG_BOARD_ESP_EYE': 'esp_eye',
+    'CONFIG_BOARD_FREENOVE_ESP32S3': 'freenove_esp32s3_cam',
+    'CONFIG_BOARD_SEEED_XIAO_S3': 'seeed_xiao_esp32s3_sense',
+    'CONFIG_BOARD_ESP32S3_EYE': 'esp32s3_eye',
+    'CONFIG_BOARD_ESP32P4_FUNCTION_EV': 'esp32p4_function_ev',
+    'CONFIG_BOARD_ESP32P4_ETH': 'esp32p4_eth',
+    'CONFIG_BOARD_CUSTOM': 'esp32cam' # Default fallback
+}
 
 def parse_config(config_file):
     config = {}
@@ -17,9 +36,9 @@ def parse_config(config_file):
                 elif val == 'n':
                     val = 'false'
                 elif val.startswith('"') and val.endswith('"'):
-                    pass # Keep quotes
+                    pass
                 elif val.isdigit() or (val.startswith('-') and val[1:].isdigit()):
-                    pass # Keep as int
+                    pass
                 else:
                     pass
                 config[key] = val
@@ -130,7 +149,6 @@ def write_header(config, header_file):
 #define STATIC_DNS 8, 8, 8, 8
 #endif
 
-
 enum AudioSource {
   AUDIO_SOURCE_NONE = 0,
   AUDIO_SOURCE_HARDWARE_I2S = 1,
@@ -170,9 +188,30 @@ void loadSettings();
 void saveSettings();
 """)
 
+def update_platformio_ini(config):
+    board_keys = [k for k in config.keys() if k.startswith('CONFIG_BOARD_') and k != 'CONFIG_BOARD_TYPE']
+    selected_env = 'esp32cam'
+    for bk in board_keys:
+        if config.get(bk) == 'true' and bk in BOARD_MAP:
+            selected_env = BOARD_MAP[bk]
+            break
+
+    print(f"Updating platformio.ini to use environment: {selected_env}")
+
+    with open('platformio.ini', 'r') as f:
+        lines = f.readlines()
+
+    with open('platformio.ini', 'w') as f:
+        for line in lines:
+            if line.startswith('default_envs'):
+                f.write(f'default_envs = {selected_env}\n')
+            else:
+                f.write(line)
+
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print("Usage: python gen_config.py <.config_file> <output_header>")
         sys.exit(1)
     config = parse_config(sys.argv[1])
     write_header(config, sys.argv[2])
+    update_platformio_ini(config)
