@@ -128,16 +128,39 @@ Edit `ESP32CAM-ONVIF/config.h`:
 
 ### 5. Build & Upload
 
+**CLI Build via Makefile (Recommended):**
+The project provides a Makefile that automates dependency management and compilation via a local virtual environment. It also features an interactive `menuconfig` tool to easily manage settings without manually editing `config.h`.
+
+1. **Configure the Project:**
+   Before building, run the interactive configuration menu:
+   ```bash
+   make menuconfig
+   ```
+   *This tool allows you to select your board, video codec, WiFi settings, and other features. It saves your preferences in a `.config` file and automatically generates the corresponding `ESP32CAM-ONVIF/config.h` header for compilation.*
+   *Note: If you run `make build` directly without running `make menuconfig` first, the system will automatically generate a default configuration based on the `Kconfig` file.*
+
+2. **Build the Firmware:**
+   ```bash
+   make build
+   ```
+   *This command compiles the firmware and copies the resulting binary into the `build/` directory.*
+
+3. **Flash the Firmware:**
+   Ensure your device is connected via USB and run:
+   ```bash
+   make flash
+   ```
+
+**Other Commands:**
+- `make help`: Show all available commands.
+- `make clean`: Clean build artifacts.
+
+---
+
 **Arduino IDE:**
 1. Install ESP32 Board Manager (v2.0.14+)
 2. Select your board (AI Thinker ESP32-CAM, etc.)
 3. Upload!
-
-**PlatformIO (Recommended):**
-```bash
-pio run -t upload
-pio device monitor -b 115200
-```
 
 **ESP-IDF (Required for H.264):**
 ```bash

@@ -11,8 +11,11 @@ VENV := .venv
 VENV_BIN := $(VENV)/bin
 PIO := $(VENV_BIN)/pio
 PIP := $(VENV_BIN)/pip
+VENV_PYTHON := $(VENV_BIN)/python
+MENUCONFIG := $(VENV_BIN)/menuconfig
+ALLDEFCONFIG := $(VENV_BIN)/alldefconfig
 
-.PHONY: help build flash clean venv
+.PHONY: help build flash clean venv menuconfig defconfig
 
 .DEFAULT_GOAL := help
 
@@ -26,13 +29,28 @@ $(VENV)/bin/activate:
 	@echo "Creating virtual environment in $(VENV) on $${OS_NAME:-$(UNAME_S)}..."
 	$(PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip
-	$(PIP) install platformio
+	$(PIP) install platformio kconfiglib
 
 venv: $(VENV)/bin/activate
+
+## menuconfig: Run interactive configuration interface
+menuconfig: venv
+	@echo "Running menuconfig..."
+	$(MENUCONFIG)
+	@$(VENV_PYTHON) gen_config.py .config ESP32CAM-ONVIF/config.h
+
+## defconfig: Generate default configuration
+defconfig: venv
+	@echo "Generating default configuration..."
+	$(ALLDEFCONFIG)
 
 ## build: Build the firmware and copy to build/ directory
 build: venv
 	@echo "Building firmware..."
+	@if [ ! -f .config ]; then \
+		echo "No .config found, running defconfig..."; \
+		$(MAKE) defconfig; \
+	fi
 	$(PIO) run
 	@mkdir -p build
 	@echo "Copying firmware.bin to build/ ..."
@@ -50,3 +68,4 @@ clean: venv
 	$(PIO) run -t clean
 	rm -rf build
 	rm -rf $(VENV)
+	rm -f .config
