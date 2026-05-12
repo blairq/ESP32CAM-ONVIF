@@ -15,7 +15,7 @@ VENV_PYTHON := $(VENV_BIN)/python
 MENUCONFIG := $(VENV_BIN)/menuconfig
 ALLDEFCONFIG := $(VENV_BIN)/alldefconfig
 
-.PHONY: help build flash clean venv menuconfig defconfig
+.PHONY: help build flash clean venv menuconfig defconfig list-ports
 
 .DEFAULT_GOAL := help
 
@@ -50,6 +50,7 @@ build: venv
 	@if [ ! -f .config ]; then \
 		echo "No .config found, running defconfig..."; \
 		$(MAKE) defconfig; \
+		$(VENV_PYTHON) gen_config.py .config ESP32CAM-ONVIF/config.h; \
 	fi
 	$(PIO) run
 	@mkdir -p build
@@ -57,10 +58,23 @@ build: venv
 	@find .pio/build -name "firmware.bin" -exec cp {} build/ \;
 	@echo "Build complete. Binaries are in build/"
 
-## flash: Flash the firmware to the device
+## list-ports: List available serial ports for flashing
+list-ports: venv
+	@echo "Available serial ports:"
+	@$(PIO) device list
+
+## flash: Flash the firmware to the device (optional PORT=/dev/ttyUSB0)
 flash: venv
 	@echo "Flashing firmware..."
-	$(PIO) run -t upload
+	@if [ -z "$(PORT)" ]; then \
+		echo "Tip: You can specify a port using 'make flash PORT=/dev/ttyUSB0'"; \
+		echo "To list available ports, run 'make list-ports' or 'ls /dev/cu.*' (macOS) / 'ls /dev/ttyUSB*' (Linux)."; \
+		echo "PlatformIO will attempt to auto-detect the port if none is provided."; \
+		$(PIO) run -t upload; \
+	else \
+		echo "Using port: $(PORT)"; \
+		$(PIO) run -t upload --upload-port $(PORT); \
+	fi
 
 ## clean: Clean the build artifacts
 clean: venv
@@ -69,3 +83,4 @@ clean: venv
 	rm -rf build
 	rm -rf $(VENV)
 	rm -f .config
+	rm -f .config.old

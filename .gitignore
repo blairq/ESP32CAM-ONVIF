@@ -70,3 +70,5 @@ go2rtc_win64/
 /reference
 .venv/
 build/
+.config
+.config.old
