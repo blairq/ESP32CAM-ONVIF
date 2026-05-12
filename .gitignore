@@ -68,3 +68,7 @@ go2rtc_win64/
 
 .agent/
 /reference
+.venv/
+build/
+.config
+.config.old

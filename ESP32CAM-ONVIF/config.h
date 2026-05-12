@@ -300,14 +300,14 @@ struct AppSettings {
   int btMicGain;          // 0-100
   int hwMicGain;          // 0-100
   AudioSource audioSource;
-  
+
   // MQTT Settings
   bool mqttEnabled;
   char mqttBroker[64];
   int mqttPort;
   char mqttUser[32];
   char mqttPassword[32];
-  
+
   // Telegram Settings
   bool telegramEnabled;
   char telegramBotToken[64];
