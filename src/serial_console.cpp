@@ -10,9 +10,10 @@
 // #include "wifi_manager.h"
 // #include "camera_control.h"
 
-static const char *TAG = "console";
+// static const char *TAG = "console";
 
-static void process_command(const char *cmd) {
+/* static void process_command(const char *cmd) {
+
     if (strlen(cmd) == 0) return;
 
     ESP_LOGI(TAG, "> %s", cmd);
@@ -40,6 +41,8 @@ static void process_command(const char *cmd) {
 // In ESP-IDF, simple stdin reading can be done with fgetc/getchar
 // However, non-blocking reading requires specific handling (like VFS/select)
 // For now, we implement a simple stub that can be extended later using esp_console component
+*/
+
 void serial_console_loop() {
     // Stub: To be replaced with esp_console or non-blocking UART read
 }

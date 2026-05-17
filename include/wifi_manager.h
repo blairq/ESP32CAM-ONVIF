@@ -1,68 +1,43 @@
 #pragma once
-#include <Arduino.h>
-#include <WiFi.h>
-#include <FS.h>
 
-// WiFi credentials structure
-struct WiFiCredentials {
-  String ssid;
-  String password;
-};
+#include <stdbool.h>
+#include <stdint.h>
+#include "esp_netif.h"
+#include "esp_wifi_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define MAX_SSID_LEN 32
+#define MAX_PASS_LEN 64
 
 // WiFi network info structure for scanning
-struct WiFiNetwork {
-  String ssid;
-  int32_t rssi;
-  uint8_t encType;
-};
+typedef struct {
+    char ssid[MAX_SSID_LEN];
+    int8_t rssi;
+    wifi_auth_mode_t authmode;
+} wifi_network_info_t;
 
-// WiFi manager class
-class WiFiManager {
-public:
-  WiFiManager();
-  
-  // Connect using stored credentials or fall back to AP mode
-  bool begin();
-  
-  // Direct connection methods
-  bool connectToStoredNetwork();
-  bool connectToNetwork(const String& ssid, const String& password);
-  
-  // AP mode functions
-  void startAPMode();
-  bool isInAPMode();
-  
-  // Scanning functions
-  int scanNetworks();
-  WiFiNetwork* getScannedNetworks();
-  int getScannedNetworksCount();
-  
-  // Credential management
-  bool saveCredentials(const String& ssid, const String& password);
-  WiFiCredentials loadCredentials();
-  
-  IPAddress getLocalIP();
-  String getSSID();
-  // int getScannedNetworksCount(); // Removed duplicate
-  
-  // Connectivity check helper
-  bool checkConnectivity();
-  
-  void loop(); // Handle reconnection
-  
-private:
-  bool _apMode;
-  int _scannedNetworksCount;
-  WiFiNetwork* _scannedNetworks;
-  unsigned long _lastConnectAttempt;
-  
-  // Stability Tracking
-  unsigned long _lastConnectedTime; // Last time we had a valid connection
-  const unsigned long _wifiTimeoutMs = 30000; // 30 seconds timeout for auto-reboot
-  
-  // Constants
-  const char* _credentialsFile = "/wifi_creds.json";
-};
+// Connect using stored credentials or fall back to AP mode
+bool wifi_manager_begin(void);
 
-// Global instance
-extern WiFiManager wifiManager;
+// Handle reconnection and monitoring
+void wifi_manager_loop(void);
+
+// AP mode functions
+void wifi_manager_start_ap(void);
+bool wifi_manager_is_ap_mode(void);
+
+// Credential management
+bool wifi_manager_save_credentials(const char *ssid, const char *password);
+bool wifi_manager_load_credentials(char *ssid, char *password);
+
+// Network Info
+esp_ip4_addr_t wifi_manager_get_local_ip(void);
+const char* wifi_manager_get_ssid(void);
+bool wifi_manager_is_connected(void);
+
+#ifdef __cplusplus
+}
+#endif

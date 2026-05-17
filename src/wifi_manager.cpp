@@ -1,297 +1,232 @@
 #include "wifi_manager.h"
-#include <ArduinoJson.h>
-#include <SPIFFS.h>
 #include "config.h"
 #include "status_led.h"
-#include "onvif_server.h"
-#include <esp_wifi.h> // For esp_wifi_set_ps
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include <string.h>
 
-// RTC Data for Fast Reconnect
-RTC_DATA_ATTR uint8_t  rtc_bssid[6];
-RTC_DATA_ATTR uint8_t  rtc_channel;
-RTC_DATA_ATTR uint32_t rtc_ip;
-RTC_DATA_ATTR uint32_t rtc_gw;
-RTC_DATA_ATTR uint32_t rtc_mask;
-RTC_DATA_ATTR bool     rtc_valid = false;
+static const char *TAG = "wifi_mgr";
 
-// Global instance
-WiFiManager wifiManager;
+// Event group for tracking connection status
+static EventGroupHandle_t wifi_event_group;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
 
-WiFiManager::WiFiManager() : _apMode(false), _scannedNetworksCount(0), _scannedNetworks(nullptr), _lastConnectAttempt(0), _lastConnectedTime(0) {
-}
+static bool _ap_mode = false;
+static char _current_ssid[MAX_SSID_LEN] = {0};
+static esp_ip4_addr_t _current_ip;
 
-void WiFiManager::loop() {
-    if (_apMode) return;
-    
-    // Check connectivity
-    if (checkConnectivity()) {
-        status_led_connected();
-        _lastConnectedTime = millis(); // Refresh timestamp
-        
-        // Handle post-reconnect state
-        static bool _wasConnected = true;
-        if (!_wasConnected) {
-            _wasConnected = true;
-            Serial.println("[INFO] Re-broadcasting ONVIF WS-Discovery...");
-            onvif_reconnect(); 
-        }
-    } else {
+static esp_netif_t *sta_netif = NULL;
+static esp_netif_t *ap_netif = NULL;
+
+static void event_handler(void* arg, esp_event_base_t event_base,
+                                int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         status_led_error();
-        
-        // Track disconnection
-        static bool _wasConnected = true;
-        if (_wasConnected) {
-            _wasConnected = false;
-        }
-
-        unsigned long now = millis();
-        
-        // 1. Aggressive Reconnect Attempt
-        if (now - _lastConnectAttempt > 10000) {
-            _lastConnectAttempt = now;
-            Serial.println(F("[WARN] WiFi Lost. Reconnecting..."));
-            status_led_wifi_connecting();
-            
-            // Force disconnect first to clear stuck states
-            WiFi.disconnect();
-            WiFi.reconnect();
-        }
-        
-        // 2. Fatal Timeout -> Reboot
-        if (now - _lastConnectedTime > _wifiTimeoutMs) {
-            Serial.printf("[FATAL] No WiFi for %lu ms. Rebooting for stability...\n", _wifiTimeoutMs);
-            delay(1000);
-            esp_restart();
-        }
-    }
-}
-
-bool WiFiManager::checkConnectivity() {
-    return WiFi.status() == WL_CONNECTED;
-}
-
-bool WiFiManager::begin() {
-  // Register WiFi Event Handler for immediate reconnect
-  WiFi.onEvent([](WiFiEvent_t event) {
-      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-          Serial.println("[WARN] WiFi lost (Event). Reconnecting...");
-          WiFi.reconnect();
-      }
-  });
-
-  // First try to connect using stored credentials
-  if (connectToStoredNetwork()) {
-    return true;
-  }
-
-  // If stored credentials failed or missing, try hardcoded config.h credentials
-  status_led_wifi_connecting();
-  String configSSID = WIFI_SSID;
-  if(configSSID != "YOUR_WIFI_SSID" && configSSID.length() > 0) {
-      Serial.println(F("[INFO] Trying config.h credentials..."));
-      if(connectToNetwork(WIFI_SSID, WIFI_PASSWORD)) {
-          return true;
-      }
-  }
-  
-  // If stored credentials don't work, start AP mode
-  startAPMode();
-  return false;
-}
-
-bool WiFiManager::connectToStoredNetwork() {
-  WiFiCredentials creds = loadCredentials();
-  
-  if (creds.ssid.length() == 0) {
-    Serial.println(F("[INFO] No stored WiFi credentials found"));
-    return false;
-  }
-  
-  return connectToNetwork(creds.ssid, creds.password);
-}
-
-bool WiFiManager::connectToNetwork(const String& ssid, const String& password) {
-  _apMode = false;
-  WiFi.mode(WIFI_STA);
-  // Important for stable streaming: Disable WiFi Power Save
-  WiFi.setSleep(false);
-  esp_wifi_set_ps(WIFI_PS_NONE); // IDF-level disable
-  
-  if (rtc_valid) {
-      Serial.println("[INFO] Fast Reconnect: Using RTC variables.");
-      IPAddress ip(rtc_ip);
-      IPAddress gw(rtc_gw);
-      IPAddress mask(rtc_mask);
-      WiFi.config(ip, gw, mask);
-      WiFi.begin(ssid.c_str(), password.c_str(), rtc_channel, rtc_bssid, true);
-  } else {
-      if (STATIC_IP_ENABLED) {
-        IPAddress ip(STATIC_IP_ADDR);
-        IPAddress gateway(STATIC_GATEWAY);
-        IPAddress subnet(STATIC_SUBNET);
-        IPAddress dns(STATIC_DNS);
-        
-        if (WiFi.config(ip, gateway, subnet, dns)) {
-          Serial.println("[INFO] Static IP Configured: " + ip.toString());
+        EventBits_t bits = xEventGroupGetBits(wifi_event_group);
+        if (!(bits & WIFI_CONNECTED_BIT)) {
+            // Initial connection attempt failed
+            xEventGroupSetBits(wifi_event_group, WIFI_FAIL_BIT);
         } else {
-          Serial.println(F("[WARN] Static IP Configuration Failed. Falling back to DHCP."));
+            // Disconnected after being connected, try to reconnect
+            xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+            ESP_LOGW(TAG, "Disconnected from AP. Reconnecting...");
+            esp_wifi_connect();
         }
-      }
-      WiFi.begin(ssid.c_str(), password.c_str());
-  }
-  
-  status_led_wifi_connecting();
-  
-  Serial.print(F("[INFO] Connecting to WiFi: "));
-  Serial.println(ssid);
-  
-  // Wait for connection
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(250);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[INFO] WiFi connected: " + WiFi.localIP().toString());
-    status_led_connected();
-    
-    // Save to RTC for fast reconnect
-    rtc_ip = WiFi.localIP();
-    rtc_gw = WiFi.gatewayIP();
-    rtc_mask = WiFi.subnetMask();
-    rtc_channel = WiFi.channel();
-    memcpy(rtc_bssid, WiFi.BSSID(), 6);
-    rtc_valid = true;
-    
-    return true;
-  } else {
-    Serial.println(F("\n[ERROR] WiFi connect failed."));
-    status_led_error();
-    rtc_valid = false; // Invalidate RTC data
-    return false;
-  }
-}
-
-void WiFiManager::startAPMode() {
-  Serial.println(F("[INFO] Starting AP mode"));
-  status_led_wifi_connecting(); 
-  _apMode = true;
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASSWORD);
-  
-  IPAddress IP = WiFi.softAPIP();
-  Serial.print(F("[INFO] AP IP address: "));
-  Serial.println(IP);
-}
-
-bool WiFiManager::isInAPMode() {
-  return _apMode;
-}
-
-int WiFiManager::scanNetworks() {
-  // Free previous scan results
-  if (_scannedNetworks != nullptr) {
-    delete[] _scannedNetworks;
-    _scannedNetworks = nullptr;
-  }
-  
-  Serial.println("[INFO] Scanning for networks...");
-  
-  // Scan for networks
-  int found = WiFi.scanNetworks();
-  _scannedNetworksCount = found;
-  
-  if (found > 0) {
-    // Allocate memory for network data
-    _scannedNetworks = new WiFiNetwork[found];
-    
-    // Store network details
-    for (int i = 0; i < found; i++) {
-      _scannedNetworks[i].ssid = WiFi.SSID(i);
-      _scannedNetworks[i].rssi = WiFi.RSSI(i);
-      _scannedNetworks[i].encType = WiFi.encryptionType(i);
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        _current_ip = event->ip_info.ip;
+        ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&_current_ip));
+        status_led_connected();
+        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
+        xEventGroupClearBits(wifi_event_group, WIFI_FAIL_BIT);
     }
-  }
-  
-  Serial.printf("[INFO] Found %d networks\n", found);
-  return found;
 }
 
-WiFiNetwork* WiFiManager::getScannedNetworks() {
-  return _scannedNetworks;
+static bool wifi_initialized = false;
+
+static void ensure_wifi_init() {
+    if (!wifi_initialized) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+        esp_event_handler_instance_t instance_any_id;
+        esp_event_handler_instance_t instance_got_ip;
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                            ESP_EVENT_ANY_ID,
+                                                            &event_handler,
+                                                            NULL,
+                                                            &instance_any_id));
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                            IP_EVENT_STA_GOT_IP,
+                                                            &event_handler,
+                                                            NULL,
+                                                            &instance_got_ip));
+        wifi_initialized = true;
+    }
 }
 
-int WiFiManager::getScannedNetworksCount() {
-  return _scannedNetworksCount;
+static bool wifi_init_sta(const char *ssid, const char *password) {
+    if (sta_netif == NULL) {
+        sta_netif = esp_netif_create_default_wifi_sta();
+    }
+
+    ensure_wifi_init();
+
+    wifi_config_t wifi_config = {};
+    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
+    if (password != NULL) {
+        strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+    }
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "wifi_init_sta finished. Waiting for connection...");
+    status_led_wifi_connecting();
+
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+            pdFALSE,
+            pdFALSE,
+            pdMS_TO_TICKS(15000));
+
+    if (bits & WIFI_CONNECTED_BIT) {
+        ESP_LOGI(TAG, "Connected to SSID:%s", ssid);
+        strncpy(_current_ssid, ssid, sizeof(_current_ssid));
+        return true;
+    } else {
+        ESP_LOGE(TAG, "Failed to connect to SSID:%s", ssid);
+        esp_wifi_stop(); // Stop before trying fallback
+        return false;
+    }
 }
 
-bool WiFiManager::saveCredentials(const String& ssid, const String& password) {
-  StaticJsonDocument<256> doc;
-  doc["ssid"] = ssid;
-  doc["password"] = password;
-  
-  File file = SPIFFS.open(_credentialsFile, "w");
-  if (!file) {
-    Serial.println("[ERROR] Failed to open credentials file for writing");
+void wifi_manager_start_ap(void) {
+    _ap_mode = true;
+    if (ap_netif == NULL) {
+        ap_netif = esp_netif_create_default_wifi_ap();
+    }
+
+    ensure_wifi_init();
+
+    wifi_config_t wifi_config = {};
+    strncpy((char *)wifi_config.ap.ssid, AP_SSID, sizeof(wifi_config.ap.ssid));
+    wifi_config.ap.ssid_len = strlen(AP_SSID);
+    strncpy((char *)wifi_config.ap.password, AP_PASSWORD, sizeof(wifi_config.ap.password));
+    wifi_config.ap.max_connection = 4;
+    wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(ap_netif, &ip_info);
+    _current_ip = ip_info.ip;
+    strncpy(_current_ssid, AP_SSID, sizeof(_current_ssid));
+
+    ESP_LOGI(TAG, "AP Mode started. SSID: %s, IP: " IPSTR, _current_ssid, IP2STR(&_current_ip));
+    status_led_wifi_connecting();
+}
+
+
+bool wifi_manager_save_credentials(const char *ssid, const char *password) {
+    nvs_handle_t my_handle;
+    esp_err_t err = nvs_open("wifi_creds", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return false;
+
+    nvs_set_str(my_handle, "ssid", ssid);
+    nvs_set_str(my_handle, "pass", password);
+    nvs_commit(my_handle);
+    nvs_close(my_handle);
+    ESP_LOGI(TAG, "WiFi credentials saved to NVS");
+    return true;
+}
+
+bool wifi_manager_load_credentials(char *ssid, char *password) {
+    nvs_handle_t my_handle;
+    esp_err_t err = nvs_open("wifi_creds", NVS_READONLY, &my_handle);
+    if (err != ESP_OK) return false;
+
+    size_t required_size = MAX_SSID_LEN;
+    err = nvs_get_str(my_handle, "ssid", ssid, &required_size);
+    if (err != ESP_OK) {
+        nvs_close(my_handle);
+        return false;
+    }
+
+    required_size = MAX_PASS_LEN;
+    err = nvs_get_str(my_handle, "pass", password, &required_size);
+    nvs_close(my_handle);
+    return err == ESP_OK;
+}
+
+bool wifi_manager_begin(void) {
+    wifi_event_group = xEventGroupCreate();
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    char saved_ssid[MAX_SSID_LEN] = {0};
+    char saved_pass[MAX_PASS_LEN] = {0};
+
+    // 1. Try NVS credentials
+    if (wifi_manager_load_credentials(saved_ssid, saved_pass)) {
+        ESP_LOGI(TAG, "Trying saved credentials from NVS...");
+        if (wifi_init_sta(saved_ssid, saved_pass)) {
+            return true;
+        }
+    }
+
+    // 2. Try hardcoded config.h credentials
+    #ifdef WIFI_SSID
+    if (strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+        ESP_LOGI(TAG, "Trying config.h credentials...");
+        if (wifi_init_sta(WIFI_SSID, WIFI_PASSWORD)) {
+            return true;
+        }
+    }
+    #endif
+
+    // 3. Fallback to AP Mode
+    ESP_LOGW(TAG, "Failed to connect to STA. Falling back to AP mode.");
+    wifi_manager_start_ap();
     return false;
-  }
-  
-  if (serializeJson(doc, file) == 0) {
-    Serial.println("[ERROR] Failed to write credentials to file");
-    file.close();
-    return false;
-  }
-  
-  file.close();
-  Serial.println("[INFO] WiFi credentials saved");
-  return true;
 }
 
-WiFiCredentials WiFiManager::loadCredentials() {
-  WiFiCredentials creds;
-  
-  if (!SPIFFS.exists(_credentialsFile)) {
-    Serial.println("[INFO] Credentials file does not exist");
-    return creds; // Return empty credentials
-  }
-  
-  File file = SPIFFS.open(_credentialsFile, "r");
-  if (!file) {
-    Serial.println("[ERROR] Failed to open credentials file for reading");
-    return creds;
-  }
-  
-  StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-  
-  if (error) {
-    Serial.print("[ERROR] Failed to parse credentials JSON: ");
-    Serial.println(error.c_str());
-    return creds;
-  }
-  
-  creds.ssid = doc["ssid"].as<String>();
-  creds.password = doc["password"].as<String>();
-  
-  Serial.println("[INFO] WiFi credentials loaded");
-  return creds;
+void wifi_manager_loop(void) {
+    if (_ap_mode) return;
+
+    // Watchdog and timeout logic could go here
+    // esp_wifi handles basic auto-reconnect internally due to event_handler
 }
 
-IPAddress WiFiManager::getLocalIP() {
-  if (_apMode) {
-    return WiFi.softAPIP();
-  } else {
-    return WiFi.localIP();
-  }
+bool wifi_manager_is_ap_mode(void) {
+    return _ap_mode;
 }
 
-String WiFiManager::getSSID() {
-  if (_apMode) {
-    return String(AP_SSID);
-  } else {
-    return WiFi.SSID();
-  }
+esp_ip4_addr_t wifi_manager_get_local_ip(void) {
+    return _current_ip;
+}
+
+const char* wifi_manager_get_ssid(void) {
+    return _current_ssid;
+}
+
+bool wifi_manager_is_connected(void) {
+    if (_ap_mode) return true;
+    EventBits_t bits = xEventGroupGetBits(wifi_event_group);
+    return (bits & WIFI_CONNECTED_BIT) != 0;
 }
