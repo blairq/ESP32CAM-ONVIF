@@ -1,75 +1,45 @@
 #include "serial_console.h"
 #include "config.h"
-#include "wifi_manager.h"
-#include "camera_control.h"
-#include "SD_MMC.h"
+#include <string.h>
+#include "esp_log.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-void process_command(String cmd) {
-    cmd.trim();
-    if (cmd.length() == 0) return;
-    
-    Serial.println("> " + cmd);
-    
-    if (cmd == "help" || cmd == "?") {
-        Serial.println("--- Serial Console Help ---");
-        Serial.println("status       : Show system status settings");
-        Serial.println("ip           : Show IP address");
-        Serial.println("reboot       : Restart device");
-        Serial.println("flash on     : Turn Flash LED ON");
-        Serial.println("flash off    : Turn Flash LED OFF");
-        Serial.println("ls           : List files on SD card");
-    } 
-    else if (cmd == "status") {
-        Serial.println("--- System Status ---");
-        Serial.printf("SSID: %s\n", wifiManager.getSSID().c_str());
-        Serial.printf("IP: %s\n", wifiManager.getLocalIP().toString().c_str());
-        Serial.printf("Uptime: %lu s\n", millis() / 1000);
-        Serial.printf("Heap: %u bytes\n", ESP.getFreeHeap());
-        Serial.printf("PSRAM: %u bytes\n", ESP.getFreePsram());
-        
-        if (FLASH_LED_ENABLED) Serial.println("Flash: Enabled");
-        else Serial.println("Flash: Disabled");
+// Temporarily commented out until other modules are migrated
+// #include "wifi_manager.h"
+// #include "camera_control.h"
+
+static const char *TAG = "console";
+
+static void process_command(const char *cmd) {
+    if (strlen(cmd) == 0) return;
+
+    ESP_LOGI(TAG, "> %s", cmd);
+
+    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
+        ESP_LOGI(TAG, "--- Serial Console Help ---");
+        ESP_LOGI(TAG, "status       : Show system status settings");
+        ESP_LOGI(TAG, "reboot       : Restart device");
     }
-    else if (cmd == "ip") {
-        Serial.println(wifiManager.getLocalIP());
+    else if (strcmp(cmd, "status") == 0) {
+        ESP_LOGI(TAG, "--- System Status ---");
+        ESP_LOGI(TAG, "Uptime: %lu ms", (unsigned long)pdTICKS_TO_MS(xTaskGetTickCount()));
+        ESP_LOGI(TAG, "Heap: %lu bytes", esp_get_free_heap_size());
     }
-    else if (cmd == "reboot") {
-        Serial.println("Rebooting...");
-        delay(100);
-        ESP.restart();
-    }
-    else if (cmd == "flash on") {
-        set_flash_led(true);
-        Serial.println("Flash set to ON");
-    }
-    else if (cmd == "flash off") {
-        set_flash_led(false);
-        Serial.println("Flash set to OFF");
-    }
-    else if (cmd == "ls") {
-        if (!SD_MMC.begin()) { // Re-init if needed or check status logic
-             // Actually, SD_MMC.begin should handle multiple calls or use logic from sd_recorder
-             // But simple ls on root:
-        }
-        File root = SD_MMC.open("/");
-        if (!root) {
-            Serial.println("Failed to open root");
-            return;
-        }
-        File file = root.openNextFile();
-        while (file) {
-             Serial.printf("  %s (%u bytes)\n", file.name(), file.size());
-             file = root.openNextFile();
-        }
+    else if (strcmp(cmd, "reboot") == 0) {
+        ESP_LOGI(TAG, "Rebooting...");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
     }
     else {
-        Serial.println("Unknown command. Type 'help'.");
+        ESP_LOGW(TAG, "Unknown command. Type 'help'.");
     }
 }
 
+// In ESP-IDF, simple stdin reading can be done with fgetc/getchar
+// However, non-blocking reading requires specific handling (like VFS/select)
+// For now, we implement a simple stub that can be extended later using esp_console component
 void serial_console_loop() {
-    if (Serial.available()) {
-        String input = Serial.readStringUntil('\n');
-        process_command(input);
-    }
+    // Stub: To be replaced with esp_console or non-blocking UART read
 }

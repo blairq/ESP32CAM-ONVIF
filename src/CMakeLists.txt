@@ -1,4 +1,6 @@
-# En el CMakeLists temporal solo compilamos main.cpp porque los demas archivos estan en Arduino puro y romperan el build
-# Todo el resto del codigo debe ser migrado en una PR posterior.
+# Compilamos main.cpp y los modulos migrados en esta fase (Fase 2)
 idf_component_register(SRCS "main.cpp"
-                    INCLUDE_DIRS "." "../include")
+                            "status_led.cpp"
+                            "auto_flash.cpp"
+                            "serial_console.cpp"
+                       INCLUDE_DIRS "." "../include")

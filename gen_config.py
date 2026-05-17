@@ -49,7 +49,7 @@ def write_header(config, header_file):
 
     with open(header_file, 'w') as f:
         f.write("#pragma once\n")
-        f.write("#include <Arduino.h>\n\n")
+        f.write("#include \"esp_log.h\"\n\n")
 
         # Board Types mappings
         board_keys = [k for k in config.keys() if k.startswith('CONFIG_BOARD_') and k != 'CONFIG_BOARD_TYPE']
@@ -107,13 +107,13 @@ def write_header(config, header_file):
 #endif
 
 #if DEBUG_MODE
-#define LOG_E(x) Serial.println("[ERROR] " + String(x))
-#define LOG_I(x) if (DEBUG_LEVEL >= 2) Serial.println("[INFO] " + String(x))
-#define LOG_D(x) if (DEBUG_LEVEL >= 3) Serial.println("[DEBUG] " + String(x))
+#define LOG_E(fmt, ...) ESP_LOGE("APP", fmt, ##__VA_ARGS__)
+#define LOG_I(fmt, ...) if (DEBUG_LEVEL >= 2) ESP_LOGI("APP", fmt, ##__VA_ARGS__)
+#define LOG_D(fmt, ...) if (DEBUG_LEVEL >= 3) ESP_LOGD("APP", fmt, ##__VA_ARGS__)
 #else
-#define LOG_E(x)
-#define LOG_I(x)
-#define LOG_D(x)
+#define LOG_E(fmt, ...)
+#define LOG_I(fmt, ...)
+#define LOG_D(fmt, ...)
 #endif
 
 // Fill empty strings for depends on to prevent errors

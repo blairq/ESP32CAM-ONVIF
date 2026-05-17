@@ -1,4 +1,11 @@
 #pragma once
-#include <Arduino.h>
 
-void serial_console_loop();
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void serial_console_loop(void);
+
+#ifdef __cplusplus
+}
+#endif
