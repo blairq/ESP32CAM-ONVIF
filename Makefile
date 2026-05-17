@@ -37,7 +37,7 @@ venv: $(VENV)/bin/activate
 menuconfig: venv
 	@echo "Running menuconfig..."
 	$(MENUCONFIG)
-	@$(VENV_PYTHON) gen_config.py .config ESP32CAM-ONVIF/config.h
+	@$(VENV_PYTHON) gen_config.py .config include/config.h
 
 ## defconfig: Generate default configuration
 defconfig: venv
@@ -50,7 +50,7 @@ build: venv
 	@if [ ! -f .config ]; then \
 		echo "No .config found, running defconfig..."; \
 		$(MAKE) defconfig; \
-		$(VENV_PYTHON) gen_config.py .config ESP32CAM-ONVIF/config.h; \
+		$(VENV_PYTHON) gen_config.py .config include/config.h; \
 	fi
 	$(PIO) run
 	@mkdir -p build
